@@ -21,3 +21,20 @@ function validarCantidadProducto($cantidad): bool
         ['options' => ['min_range' => 0]]
     ) !== false;
 }
+
+
+function validarStockMinimoProducto($stockMinimo): bool
+{
+    if (!is_int($stockMinimo) && !is_string($stockMinimo)) {
+        return false;
+    }
+
+    return filter_var(
+        $stockMinimo,
+        FILTER_VALIDATE_INT,
+        ['options' => [
+            'min_range' => 0,
+            'max_range' => 50
+        ]]
+    ) !== false;
+}

@@ -1,51 +1,78 @@
 <?php
-$conexion = null;
-$codigoSalida = 0;
-try {
-    require __DIR__ . '/conexion_pruebas.php';
-    echo "Conectado: Se conectó a la base inventarioPruebas." . PHP_EOL;
-    $conexion->beginTransaction();
-    $nombre = 'Prueba';
-    $cantidad = 5;
-    $consulta = $conexion->prepare(
-        'INSERT INTO productos (nombre, cantidad)
-         VALUES (:nombre, :cantidad)'
-    );
-    $consulta->execute([
-        'nombre' => $nombre,
-        'cantidad' => $cantidad
-    ]);
-    $id = $conexion->lastInsertId();
-    echo "Correcto: inserción realizada. ID: $id" . PHP_EOL;
-    
-    
-    $consulta = $conexion->prepare(
-    'SELECT nombre, cantidad
-     FROM productos
-     WHERE id = :id'
-    );
 
+require_once __DIR__ . '/conexion_pruebas.php';
+require_once __DIR__ . '/../src/productos.php';
+
+$correctas = 0;
+$fallidas = 0;
+
+try {
+    $conexion->beginTransaction();
+
+    echo "=== PRUEBAS DE INTEGRACIÓN ===\n";
+
+    // Prueba 1: guardar y recuperar un producto válido
+    $id = guardarProducto($conexion, 'Producto Prueba', '10', '5');
+
+    $consulta = $conexion->prepare(
+        'SELECT nombre, cantidad, stock_minimo
+         FROM productos WHERE id = :id'
+    );
     $consulta->execute(['id' => $id]);
-    $producto = $consulta->fetch();
+    $producto = $consulta->fetch(PDO::FETCH_ASSOC);
 
     if (
-        $producto !== false
-        && $producto['nombre'] === $nombre
-        && (int) $producto['cantidad'] === $cantidad
+        $producto !== false &&
+        $producto['nombre'] === 'Producto Prueba' &&
+        (int) $producto['cantidad'] === 10 &&
+        (int) $producto['stock_minimo'] === 5
     ) {
-    echo "CORRECTO: nombre y cantidad coinciden." . PHP_EOL;
+        echo "OK - Producto válido guardado y recuperado correctamente\n";
+        $correctas++;
     } else {
-        echo "ERROR: producto no encontrado o datos diferentes."
-            . PHP_EOL;
-        $codigoSalida = 1;
+        echo "FAIL - Los datos guardados no coinciden\n";
+        $fallidas++;
     }
-} catch (PDOException $error) {
-    echo "ERROR: " . $error->getMessage() . PHP_EOL;
-    $codigoSalida = 1;
+
+    // Prueba 2: rechazar un stock mínimo inválido
+    $consulta = $conexion->query(
+        'SELECT COUNT(*) FROM productos'
+    );
+    $registrosAntes = (int) $consulta->fetchColumn();
+
+    $rechazado = false;
+
+    try {
+        guardarProducto($conexion, 'Producto Inválido', '10', '51');
+    } catch (InvalidArgumentException $error) {
+        $rechazado = $error->getMessage() === 'stock_invalido';
+    }
+
+    $consulta = $conexion->query(
+        'SELECT COUNT(*) FROM productos'
+    );
+    $registrosDespues = (int) $consulta->fetchColumn();
+
+    if ($rechazado && $registrosAntes === $registrosDespues) {
+        echo "OK - Stock inválido rechazado sin crear registros\n";
+        $correctas++;
+    } else {
+        echo "FAIL - No se rechazó correctamente el producto inválido\n";
+        $fallidas++;
+    }
+
+} catch (Throwable $error) {
+    echo "ERROR - " . $error->getMessage() . "\n";
+    $fallidas++;
 } finally {
-    if ($conexion !== null && $conexion->inTransaction()) {
+    if ($conexion->inTransaction()) {
         $conexion->rollBack();
-        echo "Limpieza: inserción eliminada." . PHP_EOL;
+        echo "Limpieza: transacción revertida\n";
     }
 }
-exit($codigoSalida);
+
+echo "\n=== RESUMEN ===\n";
+echo "Correctas: $correctas\n";
+echo "Fallidas: $fallidas\n";
+
+exit($fallidas > 0 || $correctas !== 2 ? 1 : 0);
